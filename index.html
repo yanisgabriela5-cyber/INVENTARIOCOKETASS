@@ -388,7 +388,15 @@ const today=()=>{const d=new Date();return d.getFullYear()+String(d.getMonth()+1
 const fmt=n=>Number(n||0).toLocaleString("es-PA");
 const tsOf=t=>t&&t.toMillis?t.toMillis():(typeof t==="number"?t:0);
 const time=t=>{const m=tsOf(t);return m?new Date(m).toLocaleString("es-PA",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):""};
-const norm=s=>String(s||"").trim().toUpperCase();
+// normaliza códigos: sin apóstrofo inicial, sin espacios y en mayúsculas
+const norm=s=>String(s==null?"":s).trim().replace(/^'/,"").toUpperCase().replace(/\s+/g,"");
+const unzero=c=>/^\d+$/.test(c)?c.replace(/^0+(?=\d)/,""):c;
+let alias=new Map(),aliasDirty=true;
+function known(c){return S.base.has(c)||S.catalog.has(c)||S.nuevos.has(c)}
+function buildAlias(){alias=new Map();const add=k=>{const z=unzero(k);if(z===k&&!/^\d+$/.test(k))return;if(alias.has(z)&&alias.get(z)!==k)alias.set(z,null);else alias.set(z,k)};
+  S.base.forEach((v,k)=>add(k));S.catalog.forEach((v,k)=>add(k));S.nuevos.forEach((v,k)=>add(k));aliasDirty=false}
+// si el código escaneado no existe tal cual, prueba sin ceros a la izquierda (ej. 0844… vs 844…), solo si no hay ambigüedad
+function resolve(raw){const c=norm(raw);if(!c||known(c))return c;if(aliasDirty)buildAlias();const a=alias.get(unzero(c));return a||c}
 function esc(s){const d=document.createElement("div");d.textContent=s==null?"":String(s);return d.innerHTML}
 
 /* ---------- UI ---------- */
@@ -446,7 +454,7 @@ function info(nc){
   return {desc,art:c?c[1]:"",talla:c?c[2]:"",color:c?c[3]:"",origin,found,known:!!(b||c||n),parent:!!(c&&c[4])};
 }
 function lookup(code){
-  const c=norm(code);if(!c)return null;const i=info(c);
+  const c=resolve(code);if(!c)return null;const i=info(c);
   const canon=(S.baseSku&&S.baseSku.get(c))||(S.nuevos.get(c)&&S.nuevos.get(c).sku)||String(code).trim();
   return Object.assign({code:canon},i);
 }
@@ -617,7 +625,11 @@ $("baseFile").onchange=async e=>{
 };
 function parseBase(){
   const si=+$("mapSku").value,ni=+$("mapName").value,m=new Map();let empty=0,dup=0;
-  baseRows.forEach(r=>{const sku=cellStr(r[si]),name=cellStr(r[ni]).replace(/\s+/g," ");if(!sku){if(name)empty++;return}
+  const hi=baseHead.indexOf("Handle"),opt=[1,2,3].map(i=>baseHead.indexOf("Option"+i+" Value")).filter(i=>i>=0),lastName={};
+  baseRows.forEach(r=>{const sku=cellStr(r[si]).replace(/^'/,"");let name=cellStr(r[ni]).replace(/\s+/g," ");
+    if(hi>=0){const h=cellStr(r[hi]);if(name)lastName[h]=name;else name=lastName[h]||"";
+      const ov=opt.map(i=>cellStr(r[i]).replace(/^'/,"")).filter(v=>v&&v!=="Default Title");if(sku&&ov.length)name=(name+" "+ov.join(" / ")).trim()}
+    if(!sku){if(name)empty++;return}
     const k=norm(sku);if(m.has(k)){dup++;return}m.set(k,[sku,name])});
   return {m,empty,dup};
 }
@@ -842,7 +854,7 @@ $("catFiles").onchange=async e=>{
 /* ---------- conexión ---------- */
 function rebuildCatalog(){
   const m=new Map();Object.values(S.catDocs).forEach(items=>{for(const k in items){const v=items[k];if(Array.isArray(v)&&v.length>=5)m.set(norm(v[0]),v.slice(1))}});
-  S.catalog=m;S.countable=0;m.forEach(v=>{if(!v[4])S.countable++});
+  S.catalog=m;aliasDirty=true;S.countable=0;m.forEach(v=>{if(!v[4])S.countable++});
   $("scanHint").textContent=m.size?"Catálogo listo: "+fmt(m.size)+" códigos. El lector envía Enter y pasa a la cantidad.":"Catálogo vacío. Cargalo en Resumen > Administrar. Se puede contar igual.";
   renderCurrent();scheduleSummary();
 }
@@ -868,9 +880,9 @@ async function init(){
 
   col("base").onSnapshot(snap=>{const docs={};snap.docs.forEach(d=>docs[d.id]=d.data().items||{});S.baseDocs=docs;
     const m=new Map(),sk=new Map();Object.values(docs).forEach(it=>{for(const k in it){const v=it[k];if(Array.isArray(v)){const nc=norm(v[0]);m.set(nc,v[1]||"");sk.set(nc,v[0])}}});
-    S.base=m;S.baseSku=sk;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
+    S.base=m;S.baseSku=sk;aliasDirty=true;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
   col("nuevos").onSnapshot(snap=>{const m=new Map();snap.docs.forEach(d=>{const v=d.data({serverTimestamps:"estimate"});if(v&&v.sku)m.set(norm(v.sku),Object.assign({},v,{t:tsOf(v.t)}))});
-    S.nuevos=m;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
+    S.nuevos=m;aliasDirty=true;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
   col("catalogo").onSnapshot(snap=>{const docs={};snap.docs.forEach(d=>docs[d.id]=d.data().items||{});S.catDocs=docs;rebuildCatalog()},e=>banner("bad",errText(e)));
 
   col("conteos").onSnapshot({includeMetadataChanges:true},snap=>{
