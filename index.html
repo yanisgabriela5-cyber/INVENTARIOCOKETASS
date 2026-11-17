@@ -168,6 +168,10 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
       <div class="desc" id="itDesc"></div>
       <div class="tags" id="itTags"></div>
       <div class="prev" id="itPrev"></div>
+      <div id="newBox" class="hidden" style="margin-top:10px">
+        <label for="newName" style="font-weight:700;display:block;margin-bottom:6px">No está en la base. Nombre del artículo para crearlo:</label>
+        <input id="newName" class="field" style="font-size:19px" autocomplete="off" placeholder="Ej. Vestido rosado flores talla 4" enterkeyhint="next">
+      </div>
       <div class="qty-row">
         <button class="step" type="button" id="qMinus" aria-label="Restar uno">−</button>
         <input id="qtyInput" class="field" type="number" inputmode="numeric" min="1" step="1" value="1" aria-label="Cantidad" enterkeyhint="done">
@@ -241,6 +245,40 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
       </div>
     </div>
   </section>
+  <!-- REVISIÓN (solo administración) -->
+  <section id="view-revision" class="hidden">
+    <div class="admin" style="margin-top:14px">
+      <p id="baseInfo">Todavía no hay una base cargada.</p>
+      <input type="file" id="baseFile" accept=".xlsx,.xls,.csv">
+      <div id="baseMap" class="hidden" style="margin-top:10px">
+        <div class="toolbar" style="margin-top:0">
+          <label style="flex:1;min-width:150px;font-size:14px">Columna SKU<select id="mapSku" class="field" style="font-size:16px;padding:9px"></select></label>
+          <label style="flex:1;min-width:150px;font-size:14px">Columna nombre<select id="mapName" class="field" style="font-size:16px;padding:9px"></select></label>
+        </div>
+        <div class="hint" id="basePreview"></div>
+        <button class="btn primary" type="button" id="baseSave">Guardar base</button>
+      </div>
+      <div class="hint" id="baseMsg"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="rvTotal">0</b><span>artículos en la lista</span></div>
+      <div class="stat"><b id="rvCounted">0</b><span>con conteo</span></div>
+      <div class="stat"><b id="rvZero">0</b><span>en 0</span></div>
+      <div class="stat"><b id="rvNew">0</b><span>creados en el conteo</span></div>
+    </div>
+    <div class="toolbar">
+      <input id="rvSearch" class="field" placeholder="Buscar por nombre o SKU" autocomplete="off">
+      <select id="rvFilter" class="field" style="flex:0 1 200px" aria-label="Filtro">
+        <option value="all">Todos</option><option value="counted">Con conteo</option><option value="zero">En 0</option>
+        <option value="new">Creados en el conteo</option><option value="out">Contados fuera de la base</option>
+      </select>
+    </div>
+    <div class="list" id="rvList" style="margin-top:10px"></div>
+    <div class="hint" id="rvMore"></div>
+    <button class="btn primary" type="button" id="rvExport">Descargar Excel de revisión</button>
+    <div class="hint" id="rvHint"></div>
+  </section>
+
   <!-- AVANCE (solo administración) -->
   <section id="view-avance" class="hidden">
     <div class="item" style="margin-top:14px">
@@ -263,6 +301,7 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <h2 id="avDayTitle">Detalle del día</h2>
     <div class="list"><table class="zone-table" id="avPeople"></table></div>
     <div class="list" style="margin-top:10px"><table class="zone-table" id="avZones"></table></div>
+    <button class="btn ghost" type="button" id="avDayExport" style="width:100%;margin-top:10px">Descargar Excel de este día</button>
 
     <h2>Por día</h2>
     <div class="list"><table class="zone-table" id="avDaysTable"></table></div>
@@ -280,6 +319,7 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <button role="tab" aria-selected="true" data-view="contar">Contar</button>
     <button role="tab" aria-selected="false" data-view="resumen">Resumen</button>
     <button role="tab" aria-selected="false" data-view="avance" id="tabAvance" class="hidden">Avance</button>
+    <button role="tab" aria-selected="false" data-view="revision" id="tabRevision" class="hidden">Revisión</button>
   </div>
 </nav>
 
@@ -338,7 +378,7 @@ const INVENTARIO = "coketass";        // nombre del inventario (separa datos si 
 const $=id=>document.getElementById(id);
 const DEFAULT_ZONES=["PB-1","PB-2","P2-1","P2-2","P2-3"];
 const S={fs:null,root:null,me:ls("inv_usuario")||null,admin:false,
-  catalog:new Map(),catDocs:{},zones:DEFAULT_ZONES.slice(),users:[],
+  catalog:new Map(),catDocs:{},base:new Map(),baseDocs:{},nuevos:new Map(),zones:DEFAULT_ZONES.slice(),users:[],
   zone:ls("inv_zona")||null,docs:new Map(),countsReady:false,session:[],current:null,pendingServer:false};
 
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
@@ -388,8 +428,8 @@ let view="contar";
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   view=b.dataset.view;
   document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x===b?"true":"false"));
-  ["contar","resumen","avance"].forEach(v=>$("view-"+v).classList.toggle("hidden",view!==v));
-  if(view==="resumen")renderSummary();else if(view==="avance")renderAvance();else focusScan();
+  ["contar","resumen","avance","revision"].forEach(v=>$("view-"+v).classList.toggle("hidden",view!==v));
+  if(view==="resumen")renderSummary();else if(view==="avance")renderAvance();else if(view==="revision")renderRevision();else focusScan();
 });
 
 function applyKb(){const on=ls("inv_kb")==="1";$("kbToggle").checked=on;$("scanInput").setAttribute("inputmode",on?"none":"text")}
@@ -398,9 +438,17 @@ applyKb();
 function focusScan(){if(view==="contar"&&!anyOpen())setTimeout(()=>$("scanInput").focus(),30)}
 
 /* ---------- captura ---------- */
+function info(nc){
+  const b=S.base.get(nc),c=S.catalog.get(nc),n=S.nuevos.get(nc);
+  const desc=b||(n&&n.nombre)||(c&&c[0])||"";
+  const origin=b?"base":n?"nuevo":c?"catalogo":"";
+  const found=S.base.size?!!(b||n):!!(c||n);
+  return {desc,art:c?c[1]:"",talla:c?c[2]:"",color:c?c[3]:"",origin,found,known:!!(b||c||n),parent:!!(c&&c[4])};
+}
 function lookup(code){
-  const c=norm(code);if(!c)return null;const hit=S.catalog.get(c);
-  return {code:String(code).trim(),found:!!hit,desc:hit?hit[0]:"",art:hit?hit[1]:"",talla:hit?hit[2]:"",color:hit?hit[3]:""};
+  const c=norm(code);if(!c)return null;const i=info(c);
+  const canon=(S.baseSku&&S.baseSku.get(c))||(S.nuevos.get(c)&&S.nuevos.get(c).sku)||String(code).trim();
+  return Object.assign({code:canon},i);
 }
 function countsFor(code){
   const k=keyOf(norm(code));let mine=0;const zones={};
@@ -412,15 +460,17 @@ function onScan(){
   const raw=$("scanInput").value.trim();if(!raw)return;
   if(!S.me){openUserDlg();return} if(!S.zone){openZoneDlg();return}
   S.current=lookup(raw);$("scanInput").value="";renderCurrent();
-  $("qtyInput").value="1";setTimeout(()=>{$("qtyInput").focus();$("qtyInput").select()},20);
+  $("qtyInput").value="1";setTimeout(()=>{const n=$("newName");if(!S.current.found&&!n.value.trim())n.focus();else{$("qtyInput").focus();$("qtyInput").select()}},20);
 }
 function renderCurrent(){
   const c=S.current,card=$("itemCard");
   if(!c){card.classList.add("hidden");return}
   card.classList.remove("hidden");card.classList.toggle("nf",!c.found);
   $("itCode").textContent=c.code+(c.art&&c.art!==c.code?"  ·  Artículo "+c.art:"");
-  $("itDesc").textContent=c.found?c.desc:"Código fuera del catálogo";
-  $("itTags").innerHTML=(c.talla?'<span class="tag">Talla '+esc(c.talla)+'</span>':"")+(c.color?'<span class="tag">'+esc(c.color)+'</span>':"")+(!c.found?'<span class="tag">Se guarda igual y queda marcado para revisar</span>':"");
+  $("itDesc").textContent=c.found?c.desc:(c.desc?c.desc+" (no está en la base)":"Código nuevo");
+  $("itTags").innerHTML=(c.talla?'<span class="tag">Talla '+esc(c.talla)+'</span>':"")+(c.color?'<span class="tag">'+esc(c.color)+'</span>':"")+(c.origin==="nuevo"?'<span class="tag">Creado en el conteo</span>':"");
+  $("newBox").classList.toggle("hidden",c.found);
+  if(!c.found&&$("newName").dataset.code!==c.code){$("newName").value=c.desc||"";$("newName").dataset.code=c.code}
   const k=countsFor(c.code);const parts=[];
   if(k.mine)parts.push("Ya contaste <b>"+fmt(k.mine)+"</b> en "+esc(S.zone)+"; se va a sumar.");
   const others=Object.entries(k.zones).filter(([z])=>z!==S.zone);
@@ -429,6 +479,7 @@ function renderCurrent(){
 }
 $("scanInput").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key==="Tab")&&$("scanInput").value.trim()){e.preventDefault();onScan()}});
 $("qtyInput").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();save()}});
+$("newName").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("qtyInput").focus();$("qtyInput").select()}});
 $("qMinus").onclick=()=>{$("qtyInput").value=Math.max(1,(parseInt($("qtyInput").value,10)||1)-1)};
 $("qPlus").onclick=()=>{$("qtyInput").value=(parseInt($("qtyInput").value,10)||0)+1};
 $("cancelBtn").onclick=()=>{S.current=null;renderCurrent();focusScan()};
@@ -448,15 +499,21 @@ function save(){
   if(!(q>0)){flash("bad","La cantidad tiene que ser 1 o más.");$("qtyInput").focus();return}
   if(!S.root){flash("bad","Todavía no hay conexión con la base. Revisá la configuración de Firebase.");return}
   if(!S.me){openUserDlg();return} if(!S.zone){openZoneDlg();return}
+  let nombre="";
+  if(!c.found){nombre=$("newName").value.trim().replace(/\s+/g," ");
+    if(!nombre){flash("bad","Escribí el nombre del artículo para crearlo.");$("newName").focus();return}
+    const nk=keyOf(norm(c.code));
+    col("nuevos").doc(nk).set({sku:c.code,nombre,u:S.me,z:S.zone,t:firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>flash("bad",errText(e)));
+    S.nuevos.set(norm(c.code),{sku:c.code,nombre,u:S.me,z:S.zone,t:Date.now()});c.desc=nombre;c.found=true;$("newName").value="";$("newName").dataset.code="";}
   const docId=docIdFor(),k=keyOf(norm(c.code));
   const body={u:S.me,z:S.zone,f:today(),items:{[k]:{b:c.code,q:firebase.firestore.FieldValue.increment(q),t:firebase.firestore.FieldValue.serverTimestamp()}}};
-  if(!c.found)body.items[k].nf=1;
-  const entry={code:c.code,desc:c.found?c.desc:"Fuera del catálogo",qty:q,zone:S.zone,docId,t:Date.now(),state:"pending"};
+
+  const entry={code:c.code,desc:(nombre?"Nuevo: ":"")+(c.desc||c.code),qty:q,zone:S.zone,docId,t:Date.now(),state:"pending"};
   S.session.unshift(entry);S.session=S.session.slice(0,25);
   col("conteos").doc(docId).set(body,{merge:true})
     .then(()=>{entry.state="ok";renderSession()},e=>{entry.state="error";renderSession();flash("bad",errText(e))});
   // con persistencia offline el cambio queda guardado en el equipo al instante y se sube cuando haya señal
-  renderSession();flash("ok","Guardado: "+q+" × "+(c.found?c.desc:c.code));
+  renderSession();flash("ok",(nombre?"Creado y contado: ":"Guardado: ")+q+" × "+(c.desc||c.code));
   S.current=null;renderCurrent();focusScan();
 }
 function renderSession(){
@@ -496,14 +553,14 @@ function aggregate(){
     if(!d.items)return;let any=false;
     for(const k in d.items){const it=d.items[k];if(!(it&&it.q>0))continue;any=true;
       const code=it.b;const nc=norm(code);let r=map.get(nc);
-      if(!r){const h=S.catalog.get(nc);r={code,desc:h?h[0]:"",art:h?h[1]:"",talla:h?h[2]:"",color:h?h[3]:"",nf:!h,total:0,zones:{},lines:[],last:0};map.set(nc,r)}
+      if(!r){const h=info(nc);r={code,desc:h.desc,art:h.art,talla:h.talla,color:h.color,nf:!h.known,origin:h.origin,total:0,zones:{},lines:[],last:0};map.set(nc,r)}
       r.total+=it.q;r.zones[d.z]=(r.zones[d.z]||0)+it.q;r.lines.push({docId:id,d,q:it.q,t:it.t});r.last=Math.max(r.last,tsOf(it.t)||Date.now());
       zoneTot[d.z]=zoneTot[d.z]||{codes:new Set(),units:0};zoneTot[d.z].codes.add(nc);zoneTot[d.z].units+=it.q;}
     if(any)people.add(d.u)});
   return {map,people,zoneTot};
 }
 let sumTimer=null;
-function scheduleSummary(){clearTimeout(sumTimer);if(view==="resumen")sumTimer=setTimeout(renderSummary,250);else if(view==="avance")sumTimer=setTimeout(renderAvance,300)}
+function scheduleSummary(){clearTimeout(sumTimer);if(view==="resumen")sumTimer=setTimeout(renderSummary,250);else if(view==="avance")sumTimer=setTimeout(renderAvance,300);else if(view==="revision")sumTimer=setTimeout(renderRevision,300)}
 function renderSummary(){
   const {map,people,zoneTot}=aggregate();
   let units=0,nf=0;map.forEach(r=>{units+=r.total;if(r.nf)nf++});
@@ -540,6 +597,86 @@ function openDetail(r){
   $("detailDlg").showModal();
 }
 
+/* ---------- revisión (base Excel) ---------- */
+let baseRows=null,baseHead=[];
+function cellStr(v){if(v==null)return "";if(typeof v==="number")return Number.isInteger(v)?v.toFixed(0):String(v);return String(v).trim()}
+$("baseFile").onchange=async e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;$("baseMsg").textContent="Leyendo…";
+  if(typeof XLSX==="undefined"){$("baseMsg").textContent="No se cargó el lector de Excel. Recargá con señal.";return}
+  try{const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});const ws=wb.Sheets[wb.SheetNames[0]];
+    const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:""});
+    let hi=aoa.findIndex(r=>r.filter(x=>String(x).trim()).length>=2);if(hi<0)throw new Error("No encontré encabezados");
+    baseHead=aoa[hi].map((x,i)=>String(x).trim()||("Columna "+(i+1)));baseRows=aoa.slice(hi+1);baseRows.fileName=f.name;
+    const opts=baseHead.map((h,i)=>'<option value="'+i+'">'+esc(h)+'</option>').join("");$("mapSku").innerHTML=opts;$("mapName").innerHTML=opts;
+    const find=re=>baseHead.findIndex(h=>re.test(h.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase()));
+    let si=find(/variant sku|^sku|codigo barra|barcode|codigo/),ni=find(/^title|nombre|descripcion|articulo|producto|name/);
+    $("mapSku").value=String(si<0?0:si);$("mapName").value=String(ni<0?Math.min(1,baseHead.length-1):ni);
+    $("baseMap").classList.remove("hidden");previewBase();$("baseMsg").textContent="";
+  }catch(err){$("baseMsg").textContent="No se pudo leer el archivo: "+(err.message||err)}
+  e.target.value="";
+};
+function parseBase(){
+  const si=+$("mapSku").value,ni=+$("mapName").value,m=new Map();let empty=0,dup=0;
+  baseRows.forEach(r=>{const sku=cellStr(r[si]),name=cellStr(r[ni]).replace(/\s+/g," ");if(!sku){if(name)empty++;return}
+    const k=norm(sku);if(m.has(k)){dup++;return}m.set(k,[sku,name])});
+  return {m,empty,dup};
+}
+function previewBase(){if(!baseRows)return;const {m,empty,dup}=parseBase();const ex=Array.from(m.values()).slice(0,3).map(v=>v[0]+" → "+(v[1]||"(sin nombre)")).join(" · ");
+  $("basePreview").textContent=fmt(m.size)+" artículos con SKU"+(dup?" · "+fmt(dup)+" SKU repetidos (se toma el primero)":"")+(empty?" · "+fmt(empty)+" filas sin SKU (se omiten)":"")+(ex?". Ej.: "+ex:"");
+  $("baseSave").textContent="Guardar base ("+fmt(m.size)+" artículos)"}
+$("mapSku").onchange=previewBase;$("mapName").onchange=previewBase;
+$("baseSave").onclick=async()=>{
+  if(!baseRows)return;const {m}=parseBase();if(!m.size){$("baseMsg").textContent="No hay artículos con SKU en esa columna.";return}
+  $("baseSave").disabled=true;$("baseMsg").textContent="Guardando base…";
+  try{const keys=Array.from(m.keys()),size=2000,n=Math.ceil(keys.length/size);
+    for(let i=0;i<n;i++){const part={};keys.slice(i*size,(i+1)*size).forEach(k=>part[keyOf(k)]=m.get(k));await col("base").doc("b"+String(i).padStart(2,"0")).set({items:part})}
+    for(const id of Object.keys(S.baseDocs)){if(parseInt(id.slice(1),10)>=n)await col("base").doc(id).delete()}
+    await col("config").doc("general").set({base_info:{archivo:baseRows.fileName||"",articulos:m.size,fecha:Date.now()}},{merge:true});
+    $("baseMsg").textContent="Base guardada: "+fmt(m.size)+" artículos.";$("baseMap").classList.add("hidden");baseRows=null;
+  }catch(err){$("baseMsg").textContent="No se pudo guardar: "+errText(err)}
+  $("baseSave").disabled=false;
+};
+function revisionRows(){
+  const {map}=aggregate(),rows=new Map();
+  S.base.forEach((name,nc)=>{const sk=(S.baseSku&&S.baseSku.get(nc))||nc;rows.set(nc,{sku:sk,name,origin:"Excel base",qty:0,zones:"",r:null})});
+  S.nuevos.forEach((n,nc)=>{if(!rows.has(nc))rows.set(nc,{sku:n.sku,name:n.nombre,origin:"Creado en el conteo",qty:0,zones:"",r:null,nuevo:n})});
+  map.forEach((r,nc)=>{let x=rows.get(nc);if(!x){x={sku:r.code,name:r.desc||"",origin:r.nf?"Fuera de la base y del catálogo":"Fuera de la base",qty:0,zones:"",r:null,out:true};rows.set(nc,x)}
+    x.qty=r.total;x.zones=Object.keys(r.zones).join(", ");x.r=r});
+  return Array.from(rows.values());
+}
+function renderRevision(){
+  if(!S.admin)return;
+  const bi=S.baseInfo;$("baseInfo").textContent=S.base.size?"Base cargada: "+fmt(S.base.size)+" artículos"+(bi&&bi.archivo?" ("+bi.archivo+(bi.fecha?", "+new Date(bi.fecha).toLocaleDateString("es-PA"):"")+")":"")+". Subí otro Excel para reemplazarla.":"Todavía no hay una base cargada. Subí el Excel con SKU y nombre.";
+  const all=revisionRows();
+  $("rvTotal").textContent=fmt(all.length);$("rvCounted").textContent=fmt(all.filter(x=>x.qty>0).length);
+  $("rvZero").textContent=fmt(all.filter(x=>!x.qty).length);$("rvNew").textContent=fmt(all.filter(x=>x.origin==="Creado en el conteo").length);
+  const q=norm($("rvSearch").value),f=$("rvFilter").value;
+  let rows=all;
+  if(q)rows=rows.filter(x=>norm(x.sku).includes(q)||norm(x.name).includes(q));
+  if(f==="counted")rows=rows.filter(x=>x.qty>0);if(f==="zero")rows=rows.filter(x=>!x.qty);
+  if(f==="new")rows=rows.filter(x=>x.origin==="Creado en el conteo");if(f==="out")rows=rows.filter(x=>x.out);
+  rows.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const box=$("rvList");box.innerHTML=rows.length?"":'<div class="empty">No hay artículos para mostrar.</div>';
+  rows.slice(0,200).forEach(x=>{const b=document.createElement("button");b.type="button";b.className="row";
+    b.innerHTML='<div class="main"><div class="t1">'+esc(x.name||"(sin nombre)")+'</div><div class="t2">'+esc(x.sku)+(x.origin!=="Excel base"?" · "+esc(x.origin):"")+(x.zones?" · "+esc(x.zones):"")+'</div></div><div class="q"'+(x.qty?"":' style="color:var(--muted)"')+'>'+fmt(x.qty)+'</div>';
+    if(x.r)b.onclick=()=>openDetail(x.r);else b.style.cursor="default";box.appendChild(b)});
+  $("rvMore").textContent=rows.length>200?"Mostrando 200 de "+fmt(rows.length)+". Usá la búsqueda; el Excel trae todo.":"";
+}
+$("rvSearch").addEventListener("input",()=>{clearTimeout(sumTimer);sumTimer=setTimeout(renderRevision,200)});
+$("rvFilter").onchange=renderRevision;
+$("rvExport").onclick=()=>{
+  if(typeof XLSX==="undefined"){$("rvHint").textContent="No se cargó el generador de Excel. Recargá con señal.";return}
+  const all=revisionRows().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const rv=[["SKU","Nombre","Cantidad contada","Zonas","Origen"]];all.forEach(x=>rv.push([x.sku,x.name,x.qty,x.zones,x.origin]));
+  const nv=[["SKU","Nombre","Creado por","Zona","Fecha","Cantidad contada"]];
+  all.filter(x=>x.origin==="Creado en el conteo").forEach(x=>{const n=x.nuevo||S.nuevos.get(norm(x.sku))||{};nv.push([x.sku,x.name,n.u||"",n.z||"",time(n.t),x.qty])});
+  const mk=(r,w)=>{const ws=XLSX.utils.aoa_to_sheet(r);ws["!cols"]=w.map(x=>({wch:x}));const rg=XLSX.utils.decode_range(ws["!ref"]);
+    for(let R=1;R<=rg.e.r;R++){const c=ws[XLSX.utils.encode_cell({r:R,c:0})];if(c){c.t="s";c.v=String(c.v);c.z="@"}}return ws};
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,mk(rv,[20,50,15,22,28]),"Revisión");
+  XLSX.utils.book_append_sheet(wb,mk(nv,[20,50,18,10,16,15]),"Creados en el conteo");
+  const name="revision_"+INVENTARIO+"_"+today()+".xlsx";XLSX.writeFile(wb,name);$("rvHint").textContent="Descargado: "+name;
+};
+
 /* ---------- avance diario ---------- */
 let avSel=null;
 const dLabel=f=>f.slice(6,8)+"/"+f.slice(4,6);
@@ -553,15 +690,16 @@ function avanceData(){
       const P=D.people[d.u]=D.people[d.u]||{units:0,codes:new Set()};P.units+=it.q;P.codes.add(nc);
       const Z=D.zones[d.z]=D.zones[d.z]||{units:0,codes:new Set()};Z.units+=it.q;Z.codes.add(nc);
       const ZT=zones[d.z]=zones[d.z]||{units:0,codes:new Set()};ZT.units+=it.q;ZT.codes.add(nc);}});
-  let inCat=0;first.forEach((f,nc)=>{days[f].nuevos++;const h=S.catalog.get(nc);if(h&&!h[4])inCat++});
+  let inCat=0;const useBase=S.base.size>0;
+  first.forEach((f,nc)=>{days[f].nuevos++;if(useBase?S.base.has(nc):(S.catalog.get(nc)&&!S.catalog.get(nc)[4]))inCat++});
   const order=Object.keys(days).sort();
   return {first,days,order,zones,inCat};
 }
 function renderAvance(){
   if(!S.admin)return;
-  const A=avanceData(),tot=S.countable||0,pct=tot?Math.min(100,A.inCat/tot*100):0,t=today();
+  const A=avanceData(),tot=S.base.size||S.countable||0,pct=tot?Math.min(100,A.inCat/tot*100):0,t=today();
   $("avPct").textContent=pct.toFixed(1)+"%";$("avBar").style.width=pct+"%";
-  $("avSub").textContent=fmt(A.inCat)+" de "+fmt(tot)+" códigos del catálogo contados · faltan "+fmt(Math.max(0,tot-A.inCat))+(A.first.size>A.inCat?" · "+fmt(A.first.size-A.inCat)+" fuera del catálogo":"");
+  $("avSub").textContent=fmt(A.inCat)+" de "+fmt(tot)+(S.base.size?" artículos de la base contados":" códigos del catálogo contados")+" · faltan "+fmt(Math.max(0,tot-A.inCat))+(A.first.size>A.inCat?" · "+fmt(A.first.size-A.inCat)+(S.base.size?" fuera de la base":" fuera del catálogo"):"");
   const nuevos=A.order.map(f=>A.days[f].nuevos);
   $("avToday").textContent=fmt(A.days[t]?A.days[t].nuevos:0);
   $("avDays").textContent=fmt(A.order.length);
@@ -575,6 +713,7 @@ function renderAvance(){
     b.onclick=()=>{avSel=f;renderAvance()};ch.appendChild(b)});
   ch.scrollLeft=ch.scrollWidth;
   const D=avSel&&A.days[avSel];
+  $("avDayExport").textContent=avSel?"Descargar Excel del "+dLabel(avSel):"Descargar Excel de este día";$("avDayExport").disabled=!avSel;
   $("avDayTitle").textContent="Detalle del "+(avSel?dLabel(avSel)+(avSel===t?" (hoy)":""):"día");
   $("avPeople").innerHTML='<tr><th>Persona</th><th style="text-align:right">Códigos</th><th style="text-align:right">Unidades</th></tr>'+
     (D?Object.entries(D.people).sort((a,b)=>b[1].codes.size-a[1].codes.size).map(([u,v])=>'<tr><td>'+esc(u)+'</td><td class="n">'+fmt(v.codes.size)+'</td><td class="n">'+fmt(v.units)+'</td></tr>').join(""):'<tr><td colspan="3">Sin conteos</td></tr>');
@@ -588,15 +727,38 @@ function renderAvance(){
   $("avZoneTotal").innerHTML='<tr><th>Zona</th><th style="text-align:right">Códigos</th><th style="text-align:right">Unidades</th></tr>'+
     zs.map(z=>{const v=A.zones[z];return '<tr><td>'+esc(z)+'</td><td class="n">'+fmt(v?v.codes.size:0)+'</td><td class="n">'+fmt(v?v.units:0)+'</td></tr>'}).join("");
 }
+$("avDayExport").onclick=()=>{
+  if(typeof XLSX==="undefined"){$("avHint").textContent="No se cargó el generador de Excel. Recargá con señal.";return}
+  const A=avanceData(),f=avSel,D=f&&A.days[f];if(!D){$("avHint").textContent="Ese día no tiene conteos.";return}
+  const tot=S.base.size||S.countable||0,fecha=dLabel(f)+"/"+f.slice(0,4);
+  let acc=0;A.order.forEach(x=>{if(x<=f)acc+=A.days[x].nuevos});
+  const res=[["Fecha",fecha],["Códigos contados ese día",D.codes.size],["Códigos nuevos (primera vez)",D.nuevos],["Unidades contadas",D.units],
+    ["Personas",Object.keys(D.people).length],["Zonas trabajadas",Object.keys(D.zones).join(", ")],
+    ["Avance acumulado al cierre del día",tot?(acc/tot*100).toFixed(1)+"% ("+acc+" de "+tot+" códigos)":acc+" códigos"]];
+  const per=[["Persona","Códigos","Unidades"]];Object.entries(D.people).sort((a,b)=>b[1].codes.size-a[1].codes.size).forEach(([u,v])=>per.push([u,v.codes.size,v.units]));
+  const zon=[["Zona","Códigos","Unidades"]];Object.entries(D.zones).sort().forEach(([z,v])=>zon.push([z,v.codes.size,v.units]));
+  const det=[["Hora","Zona","Persona","Código Barra","Código Artículo","Descripción","Talla","Color","Cantidad","Nuevo"]];const rows=[];
+  S.docs.forEach(doc=>{if(doc.f!==f||!doc.items)return;for(const k in doc.items){const it=doc.items[k];if(!(it&&it.q>0))continue;const nc=norm(it.b),h=info(nc);
+    rows.push([tsOf(it.t),doc.z,doc.u,it.b,h.art,h.desc||"FUERA DEL CATÁLOGO",h.talla,h.color,it.q,A.first.get(nc)===f?"Sí":""])}});
+  rows.sort((a,b)=>a[0]-b[0]).forEach(r=>{r[0]=r[0]?new Date(r[0]).toLocaleTimeString("es-PA",{hour:"2-digit",minute:"2-digit"}):"";det.push(r)});
+  const wb=XLSX.utils.book_new(),mk=(r,w)=>{const ws=XLSX.utils.aoa_to_sheet(r);ws["!cols"]=w.map(x=>({wch:x}));return ws};
+  XLSX.utils.book_append_sheet(wb,mk(res,[34,40]),"Resumen");
+  XLSX.utils.book_append_sheet(wb,mk(per,[20,10,10]),"Por persona");
+  XLSX.utils.book_append_sheet(wb,mk(zon,[14,10,10]),"Por zona");
+  const wd=mk(det,[8,10,16,18,12,45,8,14,9,7]);const rg=XLSX.utils.decode_range(wd["!ref"]);for(let R=1;R<=rg.e.r;R++){const c=wd[XLSX.utils.encode_cell({r:R,c:3})];if(c){c.t="s";c.v=String(c.v);c.z="@"}}
+  XLSX.utils.book_append_sheet(wb,wd,"Artículos contados");
+  const name="avance_"+INVENTARIO+"_"+f+".xlsx";XLSX.writeFile(wb,name);$("avHint").textContent="Descargado: "+name;
+};
 $("avExport").onclick=()=>{
   if(typeof XLSX==="undefined"){$("avHint").textContent="No se cargó el generador de Excel. Recargá con señal.";return}
-  const A=avanceData(),tot=S.countable||0;let acc=0;
+  const A=avanceData(),tot=S.base.size||S.countable||0;let acc=0;
   const dias=[["Fecha","Códigos nuevos","Unidades","Personas","Acumulado","% avance"]];
   A.order.forEach(f=>{const d=A.days[f];acc+=d.nuevos;dias.push([dLabel(f)+"/"+f.slice(0,4),d.nuevos,d.units,Object.keys(d.people).length,acc,tot?+(acc/tot*100).toFixed(1):""])});
   const per=[["Fecha","Persona","Zona","Códigos","Unidades"]];
   A.order.forEach(f=>{const d=A.days[f];S.docs.forEach(doc=>{if(doc.f!==f||!doc.items)return;let c=0,u=0;for(const k in doc.items){const it=doc.items[k];if(it&&it.q>0){c++;u+=it.q}}if(c)per.push([dLabel(f)+"/"+f.slice(0,4),doc.u,doc.z,c,u])})});
   const pend=[["Código Barra","Código Artículo","Descripción","Talla","Color"]];
-  S.catalog.forEach((v,nc)=>{if(!v[4]&&!A.first.has(nc))pend.push([nc,v[1],v[0],v[2],v[3]])});
+  if(S.base.size)S.base.forEach((name,nc)=>{if(!A.first.has(nc)){const c=S.catalog.get(nc);pend.push([S.baseSku.get(nc)||nc,c?c[1]:"",name,c?c[2]:"",c?c[3]:""])}});
+  else S.catalog.forEach((v,nc)=>{if(!v[4]&&!A.first.has(nc))pend.push([nc,v[1],v[0],v[2],v[3]])});
   const wb=XLSX.utils.book_new(),mk=(r,w)=>{const ws=XLSX.utils.aoa_to_sheet(r);ws["!cols"]=w.map(x=>({wch:x}));return ws};
   XLSX.utils.book_append_sheet(wb,mk(dias,[12,15,10,10,12,10]),"Avance por día");
   XLSX.utils.book_append_sheet(wb,mk(per,[12,18,10,10,10]),"Por persona y zona");
@@ -630,7 +792,8 @@ $("exportBtn").onclick=()=>{
 };
 
 /* ---------- administración ---------- */
-function setAdmin(on){S.admin=on;ls("inv_admin",on?"1":"0");$("tabAvance").classList.toggle("hidden",!on);$("adminArea").classList.toggle("hidden",!on);
+function setAdmin(on){S.admin=on;ls("inv_admin",on?"1":"0");$("tabAvance").classList.toggle("hidden",!on);$("tabRevision").classList.toggle("hidden",!on);
+  if(!on&&(view==="avance"||view==="revision"))document.querySelector('.tabs button[data-view="resumen"]').click();$("adminArea").classList.toggle("hidden",!on);
   $("adminUnlock").textContent=on?"Salir de administración":"Administrar";if(on)renderAdmin()}
 $("adminUnlock").onclick=()=>{if(S.admin){setAdmin(false);return}
   $("pinInput").value="";$("pinMsg").textContent="";$("pinDlg").showModal();setTimeout(()=>$("pinInput").focus(),30)};
@@ -697,12 +860,17 @@ async function init(){
   col("config").doc("general").onSnapshot(s=>{
     const d=s.exists?s.data():{};
     S.zones=Array.isArray(d.zonas)&&d.zonas.length?d.zonas.slice():DEFAULT_ZONES.slice();
-    S.users=Array.isArray(d.usuarios)?d.usuarios.slice():[];
+    S.users=Array.isArray(d.usuarios)?d.usuarios.slice():[];S.baseInfo=d.base_info||null;
     if(S.zone&&!S.zones.includes(S.zone)){S.zone=null;renderZone()}
     if(S.admin)renderAdmin();
     if(!anyOpen()){if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg()}
   },e=>banner("bad",errText(e)));
 
+  col("base").onSnapshot(snap=>{const docs={};snap.docs.forEach(d=>docs[d.id]=d.data().items||{});S.baseDocs=docs;
+    const m=new Map(),sk=new Map();Object.values(docs).forEach(it=>{for(const k in it){const v=it[k];if(Array.isArray(v)){const nc=norm(v[0]);m.set(nc,v[1]||"");sk.set(nc,v[0])}}});
+    S.base=m;S.baseSku=sk;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
+  col("nuevos").onSnapshot(snap=>{const m=new Map();snap.docs.forEach(d=>{const v=d.data({serverTimestamps:"estimate"});if(v&&v.sku)m.set(norm(v.sku),Object.assign({},v,{t:tsOf(v.t)}))});
+    S.nuevos=m;renderCurrent();scheduleSummary()},e=>banner("bad",errText(e)));
   col("catalogo").onSnapshot(snap=>{const docs={};snap.docs.forEach(d=>docs[d.id]=d.data().items||{});S.catDocs=docs;rebuildCatalog()},e=>banner("bad",errText(e)));
 
   col("conteos").onSnapshot({includeMetadataChanges:true},snap=>{
