@@ -302,6 +302,7 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <div class="list"><table class="zone-table" id="avPeople"></table></div>
     <div class="list" style="margin-top:10px"><table class="zone-table" id="avZones"></table></div>
     <button class="btn ghost" type="button" id="avDayExport" style="width:100%;margin-top:10px">Descargar Excel de este día</button>
+    <button class="btn ghost" type="button" id="avDayStock" style="width:100%;margin-top:8px">Plantilla de stock Switch de este día</button>
 
     <h2>Por día</h2>
     <div class="list"><table class="zone-table" id="avDaysTable"></table></div>
@@ -309,7 +310,9 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <h2>Avance por zona</h2>
     <div class="list"><table class="zone-table" id="avZoneTotal"></table></div>
 
-    <button class="btn primary" type="button" id="avExport">Descargar Excel de avance</button>
+    <button class="btn primary" type="button" id="avStock">Plantilla de stock Switch (todo lo contado)</button>
+    <div class="hint">Formato de importación de stock con talla y color. Si pasa de 2,500 filas se descarga en varias partes.</div>
+    <button class="btn ghost" type="button" id="avExport" style="width:100%;margin-top:10px">Descargar Excel de avance</button>
     <div class="hint" id="avHint"></div>
   </section>
 </main>
@@ -725,6 +728,7 @@ function renderAvance(){
     b.onclick=()=>{avSel=f;renderAvance()};ch.appendChild(b)});
   ch.scrollLeft=ch.scrollWidth;
   const D=avSel&&A.days[avSel];
+  $("avDayStock").textContent=avSel?"Plantilla de stock Switch del "+dLabel(avSel):"Plantilla de stock Switch de este día";$("avDayStock").disabled=!avSel;
   $("avDayExport").textContent=avSel?"Descargar Excel del "+dLabel(avSel):"Descargar Excel de este día";$("avDayExport").disabled=!avSel;
   $("avDayTitle").textContent="Detalle del "+(avSel?dLabel(avSel)+(avSel===t?" (hoy)":""):"día");
   $("avPeople").innerHTML='<tr><th>Persona</th><th style="text-align:right">Códigos</th><th style="text-align:right">Unidades</th></tr>'+
@@ -739,6 +743,32 @@ function renderAvance(){
   $("avZoneTotal").innerHTML='<tr><th>Zona</th><th style="text-align:right">Códigos</th><th style="text-align:right">Unidades</th></tr>'+
     zs.map(z=>{const v=A.zones[z];return '<tr><td>'+esc(z)+'</td><td class="n">'+fmt(v?v.codes.size:0)+'</td><td class="n">'+fmt(v?v.units:0)+'</td></tr>'}).join("");
 }
+function stockExport(day){
+  if(typeof XLSX==="undefined"){$("avHint").textContent="No se cargó el generador de Excel. Recargá con señal.";return}
+  if(!S.catalog.size){$("avHint").textContent="Primero cargá el catálogo de Switch en Resumen > Administrar.";return}
+  const qty=new Map();
+  S.docs.forEach(d=>{if(!d.items||(day&&d.f!==day))return;for(const k in d.items){const it=d.items[k];if(!(it&&it.q>0))continue;const nc=norm(it.b);qty.set(nc,(qty.get(nc)||0)+it.q)}});
+  if(!qty.size){$("avHint").textContent="No hay conteos para ese período.";return}
+  const ok=[],bad=[["Código Barra","Nombre","Cantidad","Motivo"]];
+  qty.forEach((q,nc)=>{const h=S.catalog.get(nc),i=info(nc);
+    if(!h){bad.push([nc,i.desc||"",q,i.origin==="nuevo"?"Creado en el conteo: no existe en Switch":"No existe en el catálogo de Switch"]);return}
+    if(h[4]){bad.push([h[6]||nc,h[0],q,"Es un código padre, no una variante"]);return}
+    const c=h[5]===""||h[5]==null?"":Number(h[5]).toFixed(2);
+    ok.push([h[1],h[6]||nc,String(q),c,h[2]||"PLAIN",h[3]||"PLAIN"]);
+    if(c==="")bad.push([h[6]||nc,h[0],q,"Sin costo en el catálogo (va vacío en la plantilla)"])});
+  ok.sort((a,b)=>a[0].localeCompare(b[0])||a[1].localeCompare(b[1]));
+  const head=["Código artículo *","Código Barra *","Cantidad *","Costo *","Talla *","Color *"],tag=day||("total_"+today()),parts=Math.ceil(ok.length/2500)||0;
+  const sheet=rows=>{const ws=XLSX.utils.aoa_to_sheet([head].concat(rows));const rg=XLSX.utils.decode_range(ws["!ref"]);
+    for(let R=0;R<=rg.e.r;R++)for(let C=0;C<=rg.e.c;C++){const x=ws[XLSX.utils.encode_cell({r:R,c:C})];if(x){x.t="s";x.v=String(x.v);x.z="@"}}
+    ws["!cols"]=[16,18,10,10,10,14].map(w=>({wch:w}));return ws};
+  for(let i=0;i<parts;i++){const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,sheet(ok.slice(i*2500,(i+1)*2500)),"upload");
+    setTimeout(()=>XLSX.writeFile(wb,"stock_switch_"+INVENTARIO+"_"+tag+(parts>1?"_parte"+(i+1):"")+".xlsx"),i*900)}
+  if(bad.length>1){const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(bad);ws["!cols"]=[20,45,10,45].map(w=>({wch:w}));XLSX.utils.book_append_sheet(wb,ws,"Revisar");
+    setTimeout(()=>XLSX.writeFile(wb,"stock_switch_"+INVENTARIO+"_"+tag+"_revisar.xlsx"),parts*900)}
+  $("avHint").textContent=fmt(ok.length)+" filas en la plantilla"+(parts>1?" ("+parts+" archivos)":"")+(bad.length>1?" · "+fmt(bad.length-1)+" a revisar en un archivo aparte":"")+". Si Chrome pregunta, permití descargar varios archivos.";
+}
+$("avStock").onclick=()=>stockExport(null);
+$("avDayStock").onclick=()=>{if(avSel)stockExport(avSel)};
 $("avDayExport").onclick=()=>{
   if(typeof XLSX==="undefined"){$("avHint").textContent="No se cargó el generador de Excel. Recargá con señal.";return}
   const A=avanceData(),f=avSel,D=f&&A.days[f];if(!D){$("avHint").textContent="Ese día no tiene conteos.";return}
@@ -838,13 +868,14 @@ $("catFiles").onchange=async e=>{
     if(!rows.length)continue;const h=Object.keys(rows[0]);
     if(h.includes("Talla *")&&h.includes("Código Artículo *"))vars.push(...rows);else if(h.includes("Descripción *")&&h.includes("Código Barra *"))arts.push(...rows)}
   if(!arts.length){msg.textContent="Falta el Excel de creación de artículos (con la columna Descripción).";return}
-  const desc={},items={},parents=new Set(vars.map(r=>String(r["Código Artículo *"]).trim()));
-  arts.forEach(r=>{const code=String(r["Código *"]).trim(),bc=String(r["Código Barra *"]).trim();desc[code]=r["Descripción *"];if(bc)items[norm(bc)]=[r["Descripción *"],code,"","",parents.has(code)?1:0]});
+  const desc={},cost={},items={},parents=new Set(vars.map(r=>String(r["Código Artículo *"]).trim()));
+  arts.forEach(r=>{const code=String(r["Código *"]).trim();const v=parseFloat(String(r["Costo FOB *"]||r["Costo CIF *"]||"").replace(",","."));cost[code]=isFinite(v)?v:""});
+  arts.forEach(r=>{const code=String(r["Código *"]).trim(),bc=String(r["Código Barra *"]).trim();desc[code]=r["Descripción *"];if(bc)items[norm(bc)]=[r["Descripción *"],code,"","",parents.has(code)?1:0,cost[code],bc]});
   vars.forEach(r=>{const code=String(r["Código Artículo *"]).trim(),bc=String(r["Código Barra *"]).trim();if(!bc)return;
-    const t=String(r["Talla *"]).trim(),c=String(r["Color *"]).trim();items[norm(bc)]=[desc[code]||"",code,t.toUpperCase()==="PLAIN"?"":t,c.toUpperCase()==="PLAIN"?"":c,0]});
+    const t=String(r["Talla *"]).trim(),c=String(r["Color *"]).trim();items[norm(bc)]=[desc[code]||"",code,t.toUpperCase()==="PLAIN"?"":t,c.toUpperCase()==="PLAIN"?"":c,0,cost[code],bc]});
   const keys=Object.keys(items),size=1500,n=Math.ceil(keys.length/size);
   try{msg.textContent="Guardando catálogo…";
-    for(let i=0;i<n;i++){const part={};keys.slice(i*size,(i+1)*size).forEach(k=>part[keyOf(k)]=[k].concat(items[k]));await col("catalogo").doc("c"+String(i).padStart(2,"0")).set({items:part})}
+    for(let i=0;i<n;i++){const part={};keys.slice(i*size,(i+1)*size).forEach(k=>part[keyOf(k)]=[items[k][6]].concat(items[k].slice(0,6)));await col("catalogo").doc("c"+String(i).padStart(2,"0")).set({items:part})}
     for(const id of Object.keys(S.catDocs)){if(parseInt(id.slice(1),10)>=n)await col("catalogo").doc(id).delete()}
     msg.textContent="Catálogo actualizado: "+fmt(keys.length)+" códigos."}
   catch(err){msg.textContent="No se pudo guardar el catálogo: "+errText(err)}
@@ -853,7 +884,7 @@ $("catFiles").onchange=async e=>{
 
 /* ---------- conexión ---------- */
 function rebuildCatalog(){
-  const m=new Map();Object.values(S.catDocs).forEach(items=>{for(const k in items){const v=items[k];if(Array.isArray(v)&&v.length>=5)m.set(norm(v[0]),v.slice(1))}});
+  const m=new Map();Object.values(S.catDocs).forEach(items=>{for(const k in items){const v=items[k];if(Array.isArray(v)&&v.length>=5){const val=v.slice(1);val[6]=v[0];m.set(norm(v[0]),val)}}});
   S.catalog=m;aliasDirty=true;S.countable=0;m.forEach(v=>{if(!v[4])S.countable++});
   $("scanHint").textContent=m.size?"Catálogo listo: "+fmt(m.size)+" códigos. El lector envía Enter y pasa a la cantidad.":"Catálogo vacío. Cargalo en Resumen > Administrar. Se puede contar igual.";
   renderCurrent();scheduleSummary();
