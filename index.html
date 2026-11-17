@@ -235,7 +235,7 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
       </div>
       <div class="admin">
         <p id="catInfo">Catálogo</p>
-        <p>Para actualizarlo, subí juntos los Excel de Switch: creación de artículos y talla y color.</p>
+        <p>Para actualizarlo, subí los Excel de Switch: creación de artículos y los de talla y color. Podés elegirlos juntos o de a uno.</p>
         <input type="file" id="catFiles" accept=".xlsx,.xls" multiple>
         <div class="hint" id="catMsg"></div>
       </div>
@@ -863,11 +863,21 @@ $("resetGo").onclick=async()=>{
 $("catFiles").onchange=async e=>{
   const files=Array.from(e.target.files||[]);if(!files.length)return;const msg=$("catMsg");msg.textContent="Leyendo archivos…";
   if(typeof XLSX==="undefined"){msg.textContent="No se cargó el lector de Excel. Recargá con señal.";return}
-  const arts=[],vars=[];
-  for(const f of files){const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:"",raw:false});
-    if(!rows.length)continue;const h=Object.keys(rows[0]);
-    if(h.includes("Talla *")&&h.includes("Código Artículo *"))vars.push(...rows);else if(h.includes("Descripción *")&&h.includes("Código Barra *"))arts.push(...rows)}
-  if(!arts.length){msg.textContent="Falta el Excel de creación de artículos (con la columna Descripción).";return}
+  const CANON=["Código *","Código Barra *","Descripción *","Costo FOB *","Costo CIF *","Código Artículo *","Talla *","Color *"];
+  const hk=x=>String(x).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[*\s]/g,"").toLowerCase();
+  const canonOf={};CANON.forEach(c=>canonOf[hk(c)]=c);
+  const P=window.__catPend=window.__catPend||{arts:new Map(),vars:new Map()};const unknown=[];
+  for(const f of files){const wb=XLSX.read(await f.arrayBuffer(),{type:"array"});
+    let rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:"",raw:false});
+    rows=rows.map(r=>{const o={};for(const k in r){const c=canonOf[hk(k)];if(c)o[c]=r[k]}return o});
+    const h=rows.length?Object.keys(rows[0]):[];
+    if(h.includes("Talla *")&&h.includes("Código Artículo *"))P.vars.set(f.name,rows);
+    else if(h.includes("Descripción *")&&h.includes("Código Barra *"))P.arts.set(f.name,rows);
+    else unknown.push(f.name)}
+  const arts=[].concat(...P.arts.values()),vars=[].concat(...P.vars.values());
+  const got="Recibido: "+(P.arts.size?fmt(arts.length)+" artículos ("+Array.from(P.arts.keys()).join(", ")+")":"sin creación de artículos")+(P.vars.size?" · "+fmt(vars.length)+" filas de talla y color ("+Array.from(P.vars.keys()).join(", ")+")":"")+(unknown.length?" · No reconocidos: "+unknown.join(", "):"")+". ";
+  if(!arts.length){msg.textContent=got+"Falta el Excel de creación de artículos (columnas Código, Código Barra y Descripción). Seleccionalo ahora; lo que ya subiste queda guardado.";e.target.value="";return}
+  if(!vars.length&&!confirm(got+"No subiste talla y color. ¿Guardar el catálogo solo con los artículos?")){msg.textContent=got+"Seleccioná los archivos de talla y color.";e.target.value="";return}
   const desc={},cost={},items={},parents=new Set(vars.map(r=>String(r["Código Artículo *"]).trim()));
   arts.forEach(r=>{const code=String(r["Código *"]).trim();const v=parseFloat(String(r["Costo FOB *"]||r["Costo CIF *"]||"").replace(",","."));cost[code]=isFinite(v)?v:""});
   arts.forEach(r=>{const code=String(r["Código *"]).trim(),bc=String(r["Código Barra *"]).trim();desc[code]=r["Descripción *"];if(bc)items[norm(bc)]=[r["Descripción *"],code,"","",parents.has(code)?1:0,cost[code],bc]});
@@ -877,7 +887,7 @@ $("catFiles").onchange=async e=>{
   try{msg.textContent="Guardando catálogo…";
     for(let i=0;i<n;i++){const part={};keys.slice(i*size,(i+1)*size).forEach(k=>part[keyOf(k)]=[items[k][6]].concat(items[k].slice(0,6)));await col("catalogo").doc("c"+String(i).padStart(2,"0")).set({items:part})}
     for(const id of Object.keys(S.catDocs)){if(parseInt(id.slice(1),10)>=n)await col("catalogo").doc(id).delete()}
-    msg.textContent="Catálogo actualizado: "+fmt(keys.length)+" códigos."}
+    msg.textContent="Catálogo actualizado: "+fmt(keys.length)+" códigos.";window.__catPend=null}
   catch(err){msg.textContent="No se pudo guardar el catálogo: "+errText(err)}
   e.target.value="";
 };
