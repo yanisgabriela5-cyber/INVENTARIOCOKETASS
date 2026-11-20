@@ -136,6 +136,10 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
 .bar.sel .b{background:var(--ink)}
 .prog{height:14px;border-radius:999px;background:var(--bg);border:1px solid var(--line);overflow:hidden;margin-top:8px}
 .prog i{display:block;height:100%;background:var(--ok)}
+.gear{border:0;background:none;color:var(--muted);opacity:.55;font-size:20px;width:40px;height:40px;border-radius:10px;cursor:pointer;flex:0 0 auto}
+.gear:hover{opacity:1}
+.admin-head{flex:1;font-weight:700;font-size:20px;display:flex;align-items:center;gap:8px}
+.admin-head small{font-weight:400;color:var(--muted);font-size:14px}
 .switch{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:15px}
 .switch input{width:22px;height:22px}
 @media (prefers-reduced-motion:no-preference){.flash{animation:pop .18s ease-out}@keyframes pop{from{transform:scale(.97);opacity:.4}to{transform:none;opacity:1}}}
@@ -149,6 +153,8 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
       <span class="chev" aria-hidden="true">▾</span>
     </button>
     <button class="status" id="status" type="button" style="border:0;background:none;cursor:pointer"><span class="dot"></span><span id="statusText">Conectando…</span><br><span id="userName" style="font-weight:700;color:var(--ink)"></span></button>
+    <div class="admin-head hidden" id="adminHead">Administración <small id="adminSub"></small></div>
+    <button class="gear" id="gearBtn" type="button" aria-label="Administración">⚙</button>
   </div>
 </header>
 
@@ -187,6 +193,20 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <label class="switch"><input type="checkbox" id="kbToggle"> Ocultar el teclado en pantalla al escanear (para PDT con lector)</label>
   </section>
 
+  <!-- MIS CONTEOS -->
+  <section id="view-mios" class="hidden">
+    <div class="stats">
+      <div class="stat"><b id="miCodes">0</b><span id="miCodesL">códigos hoy</span></div>
+      <div class="stat"><b id="miUnits">0</b><span id="miUnitsL">unidades hoy</span></div>
+    </div>
+    <div class="toolbar">
+      <select id="miDay" class="field" style="flex:1 1 140px" aria-label="Período"><option value="today">Hoy</option><option value="all">Todos los días</option></select>
+      <select id="miZone" class="field" style="flex:1 1 140px" aria-label="Zona"></select>
+    </div>
+    <div class="toolbar"><input id="miSearch" class="field" placeholder="Buscar por código o nombre" autocomplete="off"></div>
+    <div class="list" id="miList" style="margin-top:10px"></div>
+    <div class="hint" id="miMore">Tocá un artículo para corregir la cantidad.</div>
+  </section>
   <!-- RESUMEN -->
   <section id="view-resumen" class="hidden">
     <div class="stats">
@@ -214,9 +234,10 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
     <button class="btn primary" type="button" id="exportBtn">Descargar Excel del inventario</button>
     <div class="hint" id="exportHint"></div>
 
-    <button class="btn ghost" type="button" id="adminUnlock" style="width:100%;margin-top:18px">Administrar</button>
-    <div id="adminArea" class="hidden">
-      <h2>Administración</h2>
+  </section>
+  <!-- AJUSTES (solo administración) -->
+  <section id="view-ajustes" class="hidden">
+        <div id="adminArea">
       <div class="admin">
         <p>Zonas disponibles para contar</p>
         <div class="chip-row" id="zoneChips"></div>
@@ -244,6 +265,7 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
         <button class="btn danger" type="button" id="resetBtn">Borrar todos los conteos</button>
       </div>
     </div>
+    <button class="btn ghost" type="button" id="adminExit" style="width:100%;margin-top:18px">Salir de administración (volver a la vista de conteo)</button>
   </section>
   <!-- REVISIÓN (solo administración) -->
   <section id="view-revision" class="hidden">
@@ -319,10 +341,12 @@ dialog::backdrop{background:rgba(10,12,20,.55)}
 
 <nav class="tabs" aria-label="Secciones">
   <div class="tabs-in" role="tablist">
-    <button role="tab" aria-selected="true" data-view="contar">Contar</button>
-    <button role="tab" aria-selected="false" data-view="resumen">Resumen</button>
-    <button role="tab" aria-selected="false" data-view="avance" id="tabAvance" class="hidden">Avance</button>
-    <button role="tab" aria-selected="false" data-view="revision" id="tabRevision" class="hidden">Revisión</button>
+    <button role="tab" aria-selected="true" data-view="contar" data-mode="count">Contar</button>
+    <button role="tab" aria-selected="false" data-view="mios" data-mode="count">Mis conteos</button>
+    <button role="tab" aria-selected="false" data-view="resumen" data-mode="admin" class="hidden">Resumen</button>
+    <button role="tab" aria-selected="false" data-view="avance" data-mode="admin" class="hidden">Avance</button>
+    <button role="tab" aria-selected="false" data-view="revision" data-mode="admin" class="hidden">Revisión</button>
+    <button role="tab" aria-selected="false" data-view="ajustes" data-mode="admin" class="hidden">Ajustes</button>
   </div>
 </nav>
 
@@ -435,12 +459,19 @@ document.querySelectorAll("dialog [data-close]").forEach(b=>b.onclick=()=>{b.clo
 $("zoneBtn").onclick=openZoneDlg;
 $("status").onclick=openUserDlg;
 
-let view="contar";
+let view="contar";const VIEWS=["contar","mios","resumen","avance","revision","ajustes"];
+function goView(v){const b=document.querySelector('.tabs button[data-view="'+v+'"]');if(b)b.click()}
+function applyMode(){const m=S.admin?"admin":"count";
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("hidden",b.dataset.mode!==m));
+  $("zoneBtn").classList.toggle("hidden",S.admin);$("status").classList.toggle("hidden",S.admin);$("adminHead").classList.toggle("hidden",!S.admin);
+  $("gearBtn").classList.toggle("hidden",S.admin);
+  const cur=document.querySelector('.tabs button[data-view="'+view+'"]');if(!cur||cur.dataset.mode!==m)goView(S.admin?"resumen":"contar")}
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
   view=b.dataset.view;
   document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected",x===b?"true":"false"));
-  ["contar","resumen","avance","revision"].forEach(v=>$("view-"+v).classList.toggle("hidden",view!==v));
-  if(view==="resumen")renderSummary();else if(view==="avance")renderAvance();else if(view==="revision")renderRevision();else focusScan();
+  VIEWS.forEach(v=>$("view-"+v).classList.toggle("hidden",view!==v));
+  if(view==="resumen")renderSummary();else if(view==="avance")renderAvance();else if(view==="revision")renderRevision();
+  else if(view==="ajustes")renderAdmin();else if(view==="mios")renderMine();else focusScan();
 });
 
 function applyKb(){const on=ls("inv_kb")==="1";$("kbToggle").checked=on;$("scanInput").setAttribute("inputmode",on?"none":"text")}
@@ -554,8 +585,30 @@ $("edSave").onclick=()=>{
   const {docId,code}=editCtx,k=keyOf(norm(code));
   $("editDlg").close();
   col("conteos").doc(docId).set({items:{[k]:{b:code,q:q,t:firebase.firestore.FieldValue.serverTimestamp()}}},{merge:true}).catch(e=>flash("bad",errText(e)));
-  flash("ok",q?"Corregido: total "+q:"Línea eliminada");focusScan();
+  flash("ok",q?"Corregido: total "+q:"Línea eliminada");scheduleSummary();focusScan();
 };
+
+/* ---------- mis conteos ---------- */
+function renderMine(){
+  const sel=$("miZone"),zs=["(todas)"].concat(S.zones),cur=sel.value||"(todas)";
+  if(sel.options.length!==zs.length||Array.from(sel.options).some((o,i)=>o.value!==zs[i]))sel.innerHTML=zs.map(z=>'<option value="'+esc(z)+'">'+(z==="(todas)"?"Todas las zonas":esc(z))+'</option>').join("");
+  sel.value=zs.includes(cur)?cur:"(todas)";
+  const all=$("miDay").value==="all",zone=sel.value,t=today(),q=norm($("miSearch").value);
+  const rows=[];let units=0;const codes=new Set();
+  S.docs.forEach((d,id)=>{if(d.u!==S.me||!d.items)return;if(!all&&d.f!==t)return;if(zone!=="(todas)"&&d.z!==zone)return;
+    for(const k in d.items){const it=d.items[k];if(!(it&&it.q>0))continue;const nc=norm(it.b),h=info(nc);units+=it.q;codes.add(nc);
+      rows.push({docId:id,d,code:it.b,desc:h.desc||"Sin nombre",q:it.q,t:tsOf(it.t)})}});
+  $("miCodes").textContent=fmt(codes.size);$("miUnits").textContent=fmt(units);
+  $("miCodesL").textContent=all?"códigos (todos los días)":"códigos hoy";$("miUnitsL").textContent=all?"unidades (todos los días)":"unidades hoy";
+  let list=q?rows.filter(r=>norm(r.code).includes(q)||norm(r.desc).includes(q)):rows;list.sort((a,b)=>b.t-a.t);
+  const box=$("miList");box.innerHTML=list.length?"":'<div class="empty">'+(rows.length?"Ningún artículo coincide con la búsqueda.":"No tenés conteos en este período.")+'</div>';
+  list.slice(0,200).forEach(r=>{const b=document.createElement("button");b.type="button";b.className="row";
+    b.innerHTML='<div class="main"><div class="t1">'+esc(r.desc)+'</div><div class="t2">'+esc(r.code)+' · '+esc(r.d.z)+(all?' · '+r.d.f.slice(6,8)+'/'+r.d.f.slice(4,6):'')+' · '+(r.t?new Date(r.t).toLocaleTimeString("es-PA",{hour:"2-digit",minute:"2-digit"}):"")+'</div></div><div class="q">'+fmt(r.q)+'</div>';
+    b.onclick=()=>openEdit(r.docId,r.code,S.docs.get(r.docId),r.desc);box.appendChild(b)});
+  $("miMore").textContent=(list.length>200?"Mostrando 200 de "+fmt(list.length)+". ":"")+"Tocá un artículo para corregir la cantidad.";
+}
+$("miDay").onchange=renderMine;$("miZone").onchange=renderMine;
+$("miSearch").addEventListener("input",()=>{clearTimeout(sumTimer);sumTimer=setTimeout(renderMine,200)});
 
 /* ---------- resumen ---------- */
 function aggregate(){
@@ -571,7 +624,7 @@ function aggregate(){
   return {map,people,zoneTot};
 }
 let sumTimer=null;
-function scheduleSummary(){clearTimeout(sumTimer);if(view==="resumen")sumTimer=setTimeout(renderSummary,250);else if(view==="avance")sumTimer=setTimeout(renderAvance,300);else if(view==="revision")sumTimer=setTimeout(renderRevision,300)}
+function scheduleSummary(){clearTimeout(sumTimer);if(view==="mios")sumTimer=setTimeout(renderMine,250);else if(view==="ajustes"&&S.admin)sumTimer=setTimeout(renderAdmin,250);else if(view==="resumen")sumTimer=setTimeout(renderSummary,250);else if(view==="avance")sumTimer=setTimeout(renderAvance,300);else if(view==="revision")sumTimer=setTimeout(renderRevision,300)}
 function renderSummary(){
   const {map,people,zoneTot}=aggregate();
   let units=0,nf=0;map.forEach(r=>{units+=r.total;if(r.nf)nf++});
@@ -834,18 +887,18 @@ $("exportBtn").onclick=()=>{
 };
 
 /* ---------- administración ---------- */
-function setAdmin(on){S.admin=on;ls("inv_admin",on?"1":"0");$("tabAvance").classList.toggle("hidden",!on);$("tabRevision").classList.toggle("hidden",!on);
-  if(!on&&(view==="avance"||view==="revision"))document.querySelector('.tabs button[data-view="resumen"]').click();$("adminArea").classList.toggle("hidden",!on);
-  $("adminUnlock").textContent=on?"Salir de administración":"Administrar";if(on)renderAdmin()}
-$("adminUnlock").onclick=()=>{if(S.admin){setAdmin(false);return}
+function setAdmin(on){S.admin=on;ls("inv_admin",on?"1":"0");applyMode();
+  if(!on&&!anyOpen()){if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg();else focusScan()}}
+$("adminExit").onclick=()=>setAdmin(false);
+$("gearBtn").onclick=()=>{
   $("pinInput").value="";$("pinMsg").textContent="";$("pinDlg").showModal();setTimeout(()=>$("pinInput").focus(),30)};
 $("pinInput").addEventListener("keydown",e=>{if(e.key==="Enter")$("pinGo").click()});
-$("pinGo").onclick=()=>{if($("pinInput").value===ADMIN_PIN){$("pinDlg").close();setAdmin(true);renderSummary()}
+$("pinGo").onclick=()=>{if($("pinInput").value===ADMIN_PIN){$("pinDlg").close();setAdmin(true)}
   else{$("pinMsg").textContent="Clave incorrecta.";$("pinInput").select()}};
 function chips(box,list,onRemove){box.innerHTML="";list.forEach(z=>{const c=document.createElement("span");c.className="chip";c.innerHTML=esc(z);
   const x=document.createElement("button");x.type="button";x.setAttribute("aria-label","Quitar "+z);x.textContent="×";x.onclick=()=>onRemove(z);c.appendChild(x);box.appendChild(c)})}
 function renderAdmin(){
-  $("adminArea").classList.remove("hidden");
+  if(!S.admin)return;
   chips($("zoneChips"),S.zones,z=>{if(S.zones.length>1)saveConfig({zonas:S.zones.filter(y=>y!==z)})});
   chips($("userChips"),S.users,u=>saveConfig({usuarios:S.users.filter(y=>y!==u)}));
   $("catInfo").textContent="Catálogo: "+fmt(S.catalog.size)+" códigos cargados.";
@@ -916,7 +969,7 @@ async function init(){
     S.users=Array.isArray(d.usuarios)?d.usuarios.slice():[];S.baseInfo=d.base_info||null;
     if(S.zone&&!S.zones.includes(S.zone)){S.zone=null;renderZone()}
     if(S.admin)renderAdmin();
-    if(!anyOpen()){if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg()}
+    if(!S.admin&&!anyOpen()){if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg()}
   },e=>banner("bad",errText(e)));
 
   col("base").onSnapshot(snap=>{const docs={};snap.docs.forEach(d=>docs[d.id]=d.data().items||{});S.baseDocs=docs;
@@ -934,8 +987,8 @@ async function init(){
     refreshStatus();renderSession();renderCurrent();scheduleSummary();
   },e=>{clearTimeout(loadTimer);setStatus("off","Desconectado");banner("bad",errText(e))});
 
-  if(ls("inv_admin")==="1")setAdmin(true);
-  if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg();else focusScan();
+  if(ls("inv_admin")==="1"){S.admin=true;applyMode()}
+  else if(!S.me)openUserDlg();else if(!S.zone)openZoneDlg();else focusScan();
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)focusScan()});
 init();
